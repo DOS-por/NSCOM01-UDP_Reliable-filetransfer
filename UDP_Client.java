@@ -1,102 +1,64 @@
-import java.util.*;
-import java.io.IOException;
 import java.net.*;
+import java.util.*;
 
 public class UDP_Client {
-    
-    //Constructor
-    public UDP_Client(String ipAdd, int port) 
-    {
-        try 
-        {
-            //IP add set up
-            InetAddress clientIp = InetAddress.getByName(ipAdd);
-            System.out.println("IP Address finished set up");
 
-            //Port set up
-            socket = new DatagramSocket(port);
-            System.out.println("Server Receive Port:" + port);
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
-    }
-
-    //Methods(functions)
-    public void send(String message, InetAddress targetIP, int targetPort) 
-    {
-        
-        try 
-        {
-            byte[] data = message.getBytes();
-            DatagramPacket packet = new DatagramPacket(data, data.length, targetIP, targetPort);
-            socket.send(packet);
-            System.out.println("Message sent");
-        } catch (Exception e) 
-        {
-            System.out.println("Error sending message: " + e.getMessage());
-        }
-    }
-
-    public String receive(String reply)
-    {
-    
-        try 
-        {
-            byte[] buffer = new byte[2048];
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-            socket.receive(packet);
-            reply = new String(packet.getData(), 0, packet.getLength());
-        }
-        catch (Exception e)
-        {
-            reply = e.getMessage();
-        }
-
-        return reply;
-    }
-
-    //Attributes
     private DatagramSocket socket;
 
-    //Main
-    public static void main(String[] args) throws Exception{
+    // Constructor
+    public UDP_Client() throws Exception {
+        socket = new DatagramSocket();
+        System.out.println("UDP Client socket created on local port: " + socket.getLocalPort());
+    }
+
+    public void send(String message, InetAddress targetIP, int targetPort) throws Exception {
+        byte[] data = message.getBytes();
+        DatagramPacket packet = new DatagramPacket(data, data.length, targetIP, targetPort);
+        socket.send(packet);
+        System.out.println("Sent: " + message);
+    }
+
+    public String receive() throws Exception {
+        byte[] buffer = new byte[2048];
+        DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+        socket.receive(packet);
+        return new String(packet.getData(), 0, packet.getLength());
+    }
+
+    public void close() {
+        socket.close();
+    }
+
+    public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
 
-        System.out.println("Please Enter Your IP Address");
-        String ipAdd = sc.nextLine();
+        System.out.println("Enter Server IP:");
+        String serverIPStr = sc.nextLine();
 
-        System.out.println("Please Enter Desired Port to Receive");
-        int port = sc.nextInt();
+        System.out.println("Enter Server Listen Port:");
+        int serverPort = Integer.parseInt(sc.nextLine());
 
-        UDP_Client client = new UDP_Client(ipAdd, port);
-        
-        boolean stop = false;
-        while (!stop) 
-        {
-            // Send a message
-            System.out.print("Enter message to send (type 'exit' to stop): ");
-            String msg = sc.nextLine();
-            if (msg.equalsIgnoreCase("exit")) {
-                stop = true;
-                continue;
-            }
+        UDP_Client client = new UDP_Client();
+        InetAddress serverIP = InetAddress.getByName(serverIPStr);
 
-            System.out.println("Please Enter targetIP:");
-            String targetIP = sc.nextLine();
-            InetAddress targetAddress = InetAddress.getByName(targetIP);
+        //Send SYN
+        client.send("SYN", serverIP, serverPort);
 
-            System.out.println("Please Enter destPort:");
-            int destPort = sc.nextInt();
-            sc.nextLine();
+        //Receive SYN-ACK (available ports)
+        String portsMsg = client.receive();
+        System.out.println("Server responded with: " + portsMsg);
 
-            client.send(msg, targetAddress, destPort);
+        //Send CONFIRM (pick first port)
+        String[] parts = portsMsg.split(":");
+        String[] ports = parts[1].split(",");
+        String chosenPort = ports[0];
+        client.send("CONFIRM:" + chosenPort, serverIP, serverPort);
 
-            // Receive a message
-            String reply = "";
-            reply = client.receive(reply);
-            System.out.println("Received: " + reply);
-        }
+        //Receive PORT_CONFIRMED
+        String confirmMsg = client.receive();
+        System.out.println("Server confirmation: " + confirmMsg);
+
+        client.close();
+        System.out.println("Handshake complete.");
     }
 }
