@@ -7,6 +7,7 @@ public class UDP_Server {
     private DatagramSocket socket;
     private Queue<Integer> openPorts = new LinkedList<>();
     private Map<Integer, InetSocketAddress> activeSessions = new HashMap<>();
+    
 
     // Constructor
     public UDP_Server(String ipAdd, int port) {
@@ -90,11 +91,8 @@ public class UDP_Server {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
 
-        System.out.println("Enter Server IP Address:");
-        String ipAdd = sc.nextLine();
-
-        System.out.println("Enter Server Listen Port:");
-        int port = Integer.parseInt(sc.nextLine());
+        String ipAdd = "127.0.0.1";
+        int port = 8000;
 
         UDP_Server server = new UDP_Server(ipAdd, port);
 
