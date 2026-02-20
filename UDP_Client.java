@@ -41,11 +41,8 @@ public class UDP_Client {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
 
-        System.out.println("Enter Server IP:");
-        String serverIPStr = sc.nextLine();
-
-        System.out.println("Enter Server Listen Port:");
-        int serverPort = Integer.parseInt(sc.nextLine());
+        String serverIPStr = "127.0.0.1";
+        int serverPort = 8000;
 
         UDP_Client client = new UDP_Client();
         InetAddress serverIP = InetAddress.getByName(serverIPStr);
