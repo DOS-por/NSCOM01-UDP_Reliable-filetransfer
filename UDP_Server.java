@@ -68,7 +68,7 @@ public class UDP_Server {
             String[] c = confirmMsg.split(":", 4);
             int chosenPort = Integer.parseInt(c[3]);
 
-            // ASSIGN PORT
+            // dASSIGN PORT
             if (openPorts.contains(chosenPort)) {
                 openPorts.remove(chosenPort);
                 activeSessions.put(chosenPort, clientAddress);
