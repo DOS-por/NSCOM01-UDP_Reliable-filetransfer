@@ -3,6 +3,7 @@ import java.util.*;
 
 public class UDP_Server {
 
+    private int seqNum = 200; // Initial server seq num
     private DatagramSocket socket;
     private Queue<Integer> openPorts = new LinkedList<>();
     private Map<Integer, InetSocketAddress> activeSessions = new HashMap<>();
@@ -24,6 +25,11 @@ public class UDP_Server {
         }
     }
 
+    // Build packet: TYPE:SEQ:ACK:PAYLOAD
+    private String buildPacket(String type, int ack, String payload) {
+        return type + ":" + seqNum + ":" + ack + ":" + payload;
+    }
+
     // Handle handshake
     public InetSocketAddress handleHandshake() {
         try {
@@ -31,50 +37,45 @@ public class UDP_Server {
             byte[] buffer = new byte[1024];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             socket.receive(packet);
+
             InetSocketAddress clientAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
             String message = new String(packet.getData(), 0, packet.getLength());
-            System.out.println("Received from client: " + message + " (" + clientAddress + ")");
+            System.out.println("Received: " + message);
+            String[] p = message.split(":", 4);
+            String type = p[0];
+            int clientSeq = Integer.parseInt(p[1]);
 
-            if (!message.equals("SYN")) {
+            if (!type.equals("SYN")) {
                 System.out.println("Expected SYN, got: " + message);
                 return null;
             }
 
             // --- Send SYN-ACK (available ports)
             String ports = String.join(",", openPorts.stream().map(String::valueOf).toArray(String[]::new));
-            String synAck = "Available Ports:" + ports;
+            String synAck = buildPacket("SYN-ACK", clientSeq + 1, ports);
             socket.send(new DatagramPacket(synAck.getBytes(), synAck.length(),
-                    packet.getAddress(), packet.getPort()));
-            System.out.println("Sent available ports to client: " + clientAddress);
+                    clientAddress.getAddress(), clientAddress.getPort()));
+            System.out.println("Sent: " + synAck);
+            seqNum++;
 
             // --- Receive CONFIRM from client
             buffer = new byte[1024]; // fresh buffer
             DatagramPacket confirmPacket = new DatagramPacket(buffer, buffer.length);
             socket.receive(confirmPacket);
+
             String confirmMsg = new String(confirmPacket.getData(), 0, confirmPacket.getLength());
-            System.out.println("Received from client: " + confirmMsg);
+            System.out.println("Received " + confirmMsg);
+            String[] c = confirmMsg.split(":", 4);
+            int chosenPort = Integer.parseInt(c[3]);
 
-            if (confirmMsg.startsWith("CONFIRM:")) {
-                int chosenPort = Integer.parseInt(confirmMsg.split(":")[1]);
+            // ASSIGN PORT
+            if (openPorts.contains(chosenPort)) {
+                openPorts.remove(chosenPort);
+                activeSessions.put(chosenPort, clientAddress);
 
-                if (openPorts.contains(chosenPort)) {
-                    // Assign port to client and remove from available
-                    openPorts.remove(chosenPort);
-                    activeSessions.put(chosenPort, clientAddress);
-
-                    // Send PORT_CONFIRMED
-                    String ack = "PORT_CONFIRMED:" + chosenPort;
-                    socket.send(new DatagramPacket(ack.getBytes(), ack.length(),
-                            confirmPacket.getAddress(), confirmPacket.getPort()));
-
-                    System.out.println("Port " + chosenPort + " assigned to " + clientAddress);
-                } else {
-                    // Port already taken
-                    String ack = "PORT_UNAVAILABLE";
-                    socket.send(new DatagramPacket(ack.getBytes(), ack.length(),
-                            confirmPacket.getAddress(), confirmPacket.getPort()));
-                    System.out.println("Client requested unavailable port: " + chosenPort);
-                }
+                String ack = buildPacket("PORT_CONFIRMED", Integer.parseInt(c[1]) + 1, "" + chosenPort);
+                socket.send(new DatagramPacket(ack.getBytes(), ack.length(), clientAddress));
+                System.out.println("Sent " + ack);
             }
 
             return clientAddress;
