@@ -5,7 +5,6 @@ public class UDP_Server {
 
     private int seqNum = 200; // Initial server seq num
     private DatagramSocket socket;
-    private Queue<Integer> openPorts = new LinkedList<>();
     private Map<Integer, InetSocketAddress> activeSessions = new HashMap<>();
     
 
@@ -15,11 +14,6 @@ public class UDP_Server {
             InetAddress serverIp = InetAddress.getByName(ipAdd);
             socket = new DatagramSocket(port);
             System.out.println("Server running at IP: " + serverIp + " on port: " + port);
-
-            // Initialize available ports
-            openPorts.add(8001);
-            openPorts.add(8002);
-            openPorts.add(8003);
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -51,9 +45,9 @@ public class UDP_Server {
                 return null;
             }
 
-            // --- Send SYN-ACK (available ports)
-            String ports = String.join(",", openPorts.stream().map(String::valueOf).toArray(String[]::new));
-            String synAck = buildPacket("SYN-ACK", clientSeq + 1, ports);
+            // --- Send SYN-ACK (send generated sessionID)
+            String sessionID = "1000";
+            String synAck = buildPacket("SYN-ACK", clientSeq + 1, sessionID);
             socket.send(new DatagramPacket(synAck.getBytes(), synAck.length(),
                     clientAddress.getAddress(), clientAddress.getPort()));
             System.out.println("Sent: " + synAck);
@@ -67,14 +61,11 @@ public class UDP_Server {
             String confirmMsg = new String(confirmPacket.getData(), 0, confirmPacket.getLength());
             System.out.println("Received " + confirmMsg);
             String[] c = confirmMsg.split(":", 4);
-            int chosenPort = Integer.parseInt(c[3]);
+            int seshID = Integer.parseInt(sessionID);
 
-            // dASSIGN PORT
-            if (openPorts.contains(chosenPort)) {
-                openPorts.remove(chosenPort);
-                activeSessions.put(chosenPort, clientAddress);
-
-                String ack = buildPacket("PORT_CONFIRMED", Integer.parseInt(c[1]) + 1, "" + chosenPort);
+            // ASSIGN SESSIONID
+            if () {
+                String ack = buildPacket("SESSIONID_CONFIRMED", Integer.parseInt(c[1]) + 1, "" + sessionID);
                 socket.send(new DatagramPacket(ack.getBytes(), ack.length(), clientAddress));
                 System.out.println("Sent " + ack);
             }
@@ -98,10 +89,12 @@ public class UDP_Server {
 
         System.out.println("Server ready. Waiting for clients...");
 
-        while (true) {
+        boolean stop = false;
+        while (!stop) {
             InetSocketAddress client = server.handleHandshake();
             if (client != null) {
                 System.out.println("Handshake complete with client: " + client + "\n");
+                stop = true;
             }
         }
     }

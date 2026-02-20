@@ -23,7 +23,6 @@ public class UDP_Client {
         DatagramPacket packet = new DatagramPacket(data, data.length, targetIP, targetPort);
         socket.send(packet);
         System.out.println("Sent: " + pkt);
-        seqNum++; // Advance client seq num
     }
 
     public String receive() throws Exception {
