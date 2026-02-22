@@ -103,7 +103,7 @@ public class UDP_Client {
 
     // DOWNload part (REQUEST)
     public void requestFile(String filename, InetAddress serverIP, int serverPort) throws Exception {
-        String req = buildPkt("REQ", seqNum, ackNum, filename.getBytes());
+        String req = buildPkt("REQ:", seqNum, ackNum, filename.getBytes());
         DatagramPacket packet = new DatagramPacket(req.getBytes(), req.length(), serverIP, serverPort);
         socket.send(packet);
         seqNum++;
