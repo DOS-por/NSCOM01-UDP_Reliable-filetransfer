@@ -53,19 +53,21 @@ public class UDP_Client {
         FileInputStream fileInput = new FileInputStream(filePath);
         byte[] buffer = new byte[3096];
         int bytesRead;
+        int maxRetries = 5; // max retries per packet
 
         while ((bytesRead = fileInput.read(buffer)) != -1) {
             byte[] payload = Arrays.copyOf(buffer, bytesRead);
             boolean ackRecv = false;
+            int retryCount = 0;
 
-            while (!ackRecv) {
-                // Send DATA packet
-                String packet = buildPkt("DATA", seqNum, 0, payload);
-                socket.send(new DatagramPacket(packet.getBytes(), packet.length(), serverIP, serverPort));
-                System.out.println("Sent DATA seq=" + seqNum + " size=" + bytesRead);
-
-                // Wait for ACK
+            while (!ackRecv && retryCount < maxRetries) {
                 try {
+                    // Send DATA packet
+                    String packet = buildPkt("DATA", seqNum, 0, payload);
+                    socket.send(new DatagramPacket(packet.getBytes(), packet.length(), serverIP, serverPort));
+                    System.out.println("Sent DATA seq=" + seqNum + " size=" + bytesRead);
+
+                    // Wait for ACK
                     socket.setSoTimeout(2000);
                     byte[] ackBuf = new byte[2048];
                     DatagramPacket ackPacket = new DatagramPacket(ackBuf, ackBuf.length);
@@ -75,9 +77,8 @@ public class UDP_Client {
                     String[] parts = ackMsg.split(":", 4);
                     String type = parts[0];
 
-                    // ACK number is carried in the payload (Base64-decoded), not parts[3] raw
                     int ackNumRecv = -1;
-                    if (type.equals("ACK") && !parts[3].isEmpty()) {
+                    if (type.equals("ACK") && parts.length > 3 && !parts[3].isEmpty()) {
                         byte[] ackPayload = Base64.getDecoder().decode(parts[3]);
                         ackNumRecv = Integer.parseInt(new String(ackPayload));
                     }
@@ -85,20 +86,31 @@ public class UDP_Client {
                     if (ackNumRecv == seqNum) {
                         ackRecv = true;
                         seqNum++;
+                    } else {
+                        retryCount++;
+                        System.out.println("ACK mismatch, resending seq=" + seqNum + " (retry " + retryCount + ")");
                     }
+
                 } catch (SocketTimeoutException e) {
-                    System.out.println("Timeout, resending seq=" + seqNum);
+                    retryCount++;
+                    System.out.println("Timeout, resending seq=" + seqNum + " (retry " + retryCount + ")");
                 }
             }
+
+            if (!ackRecv) {
+                System.out.println("Failed to send packet seq=" + seqNum + " after " + maxRetries + " retries. Aborting upload.");
+                fileInput.close();
+                return;
+            }
         }
+
         fileInput.close();
-        socket.setSoTimeout(0); // Reset timeout
+        socket.setSoTimeout(0); // reset timeout
 
         // Send DATA_END
         String endPacket = buildPkt("DATA_END", seqNum, 0, null);
         socket.send(new DatagramPacket(endPacket.getBytes(), endPacket.length(), serverIP, serverPort));
         System.out.println("File transfer complete. Sent DATA_END.");
-
     }
 
     // DOWNload part (REQUEST)
@@ -114,42 +126,75 @@ public class UDP_Client {
     public void receiveFile(String savePath) throws Exception {
         FileOutputStream fos = new FileOutputStream(savePath);
         int expectedSeq = -1;
-        System.out.println("Receiving file..");
+        int maxRetries = 5; // max retries if a packet is missing
+        int retryCount;
+        boolean receivedPacket;
 
-        while(true){
-            byte[] buffer = new byte[4096];
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-            socket.receive(packet);
-            String msg = new String(packet.getData(), 0, packet.getLength());
-            System.out.println("Received: " + msg);
+        System.out.println("Receiving file...");
+        socket.setSoTimeout(2000); // wait 2 seconds for each packet
 
-            String[] p = msg.split(":", 4);
-            String type = p[0];
-            int seq = Integer.parseInt(p[1]);
-            if(expectedSeq == -1) expectedSeq = seq;
+        try {
+            while (true) {
+                byte[] buffer = new byte[4096];
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                retryCount = 0;
+                receivedPacket = false;
 
-            if(type.equals("DATA_END")){
-                System.out.println("Download finished. Saved as:" + savePath);
-                String ackMsg = buildPkt("ACK", seq, 0, (seq+"").getBytes());
-                socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
-                break;
-            }
-            if(type.equals("DATA")){
-                byte[] payload = p[3].isEmpty() ? new byte[0] : Base64.getDecoder().decode(p[3]);
+                while (!receivedPacket && retryCount < maxRetries) {
+                    try {
+                        socket.receive(packet);
+                        receivedPacket = true;
 
-                if(seq == expectedSeq){
-                    fos.write(payload);
-                    String ackMsg = buildPkt("ACK", seq, 0, (seq+"").getBytes());
-                    socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
-                    expectedSeq++;
-                }else{
-                    int lastAck = expectedSeq - 1;
-                    String ackMsg = buildPkt("ACK", lastAck, 0, (lastAck    +"").getBytes());
-                    socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
+                        String msg = new String(packet.getData(), 0, packet.getLength());
+                        System.out.println("Received: " + msg);
+
+                        String[] p = msg.split(":", 4);
+                        String type = p[0];
+                        int seq = Integer.parseInt(p[1]);
+                        if (expectedSeq == -1) expectedSeq = seq;
+
+                        if (type.equals("DATA_END")) {
+                            System.out.println("Download finished. Saved as: " + savePath);
+                            String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                            socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
+                            return; // finished
+                        }
+
+                        if (type.equals("DATA")) {
+                            byte[] payload = (p.length > 3 && !p[3].isEmpty()) ? Base64.getDecoder().decode(p[3]) : new byte[0];
+
+                            if (seq == expectedSeq) {
+                                fos.write(payload);
+                                String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                                socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
+                                expectedSeq++;
+
+                            } else if (seq < expectedSeq) {
+                                // duplicate packet
+                                int lastAck = expectedSeq - 1;
+                                String ackMsg = buildPkt("ACK", lastAck, 0, (lastAck + "").getBytes());
+                                socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
+                            }
+                        }
+
+                    } 
+                    catch (SocketTimeoutException e) 
+                    {
+                        retryCount++;
+                        System.out.println("Timeout waiting for packet seq=" + expectedSeq + ", retry " + retryCount);
+                    }
+                }
+
+                if (!receivedPacket) {
+                    System.out.println("Failed to receive packet seq=" + expectedSeq + " after " + maxRetries + " retries. Aborting download.");
+                    return;
                 }
             }
+        } 
+        finally 
+        {
+            fos.close();
         }
-        fos.close();
     }
 
     public void close() {
@@ -163,8 +208,15 @@ public class UDP_Client {
         DatagramPacket resp = new DatagramPacket(buf, buf.length);
         socket.receive(resp);
         String msg = new String(resp.getData(), 0, resp.getLength());
-        if(!msg.startsWith("FILELIST:")) return new ArrayList<>();
-        return Arrays.asList(msg.substring(9).split("\\|"));
+        if (!msg.startsWith("FILELIST:")) return new ArrayList<>();
+        String fileList = msg.substring(9); // remove "FILELIST:"
+        // Handle empty list
+        if (fileList.trim().isEmpty() || fileList.equalsIgnoreCase("No files available")) {
+            System.out.println("No files available on the server.");
+            return new ArrayList<>();
+        }
+        // Return list of files
+        return Arrays.asList(fileList.split("\\|"));
     }
 
     public static void main(String[] args) throws Exception {
@@ -196,22 +248,35 @@ public class UDP_Client {
         System.out.println("1. Upload File");
         System.out.println("2. Download File");
         System.out.println("3. List Downloadable Files");
-        String option = sc.nextLine().trim();
+        System.out.println("4. End Session");
+        String input = sc.nextLine().trim();
+        int option = Integer.parseInt(input);
 
-        if(option.equals("1")){
-            System.out.println("Enter file to uplaod: ");
-            String file = sc.nextLine().trim();
-            client.send("UPLOAD", null, serverIP, serverPort);
-            client.sendFile(file,serverIP, serverPort);
-        }else if(option.equals("2")){
-            System.out.println("Enter file to download: ");
-            String fileName = sc.nextLine().trim();
-            client.requestFile(fileName, serverIP, serverPort);
-            client.receiveFile("downloads/" + fileName);
-        }else if(option.equals("3")){
-            List<String> files = client.requestFileList(serverIP, serverPort);
-            System.out.println("Available files:");
-            for(String f : files) System.out.println(" - " + f);
+
+        switch(option) {
+            case 1:
+                System.out.println("Enter file to uplaod: ");
+                String file = sc.nextLine().trim();
+                client.send("UPLOAD", null, serverIP, serverPort);
+                client.sendFile(file,serverIP, serverPort);
+                break;
+            case 2:
+                System.out.println("Enter file to download: ");
+                String fileName = sc.nextLine().trim();
+                client.requestFile(fileName, serverIP, serverPort);
+                client.receiveFile("downloads/" + fileName);
+                break;
+            case 3:
+                List<String> files = client.requestFileList(serverIP, serverPort);
+                System.out.println("Available files:");
+                for(String f : files) System.out.println(" - " + f);
+                break;
+            case 4:
+                client.send("FIN",null, serverIP, serverPort);
+                System.out.println("Session Ended...");
+                break;
         }
+
+        sc.close();
     }
 }
