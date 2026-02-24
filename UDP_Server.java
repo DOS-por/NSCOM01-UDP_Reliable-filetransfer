@@ -62,10 +62,15 @@ public class UDP_Server {
 
         // Keep looping until we get a valid SYN
         while (true) {
-            socket.setSoTimeout(2000);
-            buffer = new byte[1024];
-            packet = new DatagramPacket(buffer, buffer.length);
-            socket.receive(packet);
+            try{
+                socket.setSoTimeout(5000);
+                buffer = new byte[1024];
+                packet = new DatagramPacket(buffer, buffer.length);
+                socket.receive(packet);
+            }catch(SocketTimeoutException e){
+                System.out.println("Waiting for client..");
+                continue;
+            }
 
             clientAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
             message = new String(packet.getData(), 0, packet.getLength());
@@ -81,6 +86,7 @@ public class UDP_Server {
             }
             break; // got SYN, proceed
         }
+        socket.setSoTimeout(0);
         // Generate sessionKey for tracking
         String sessionKey = clientAddress.getAddress().getHostAddress() + ":" + clientAddress.getPort();
 
@@ -166,7 +172,7 @@ public class UDP_Server {
         FileInputStream curFile = new FileInputStream(file);
         byte[] fileBytes = curFile.readAllBytes();
         curFile.close();
-        int seq = session.expectedSeq;
+        int seq = seqNum;
         int offset = 0;
         int chunkSize = 1024;
 
@@ -189,6 +195,7 @@ public class UDP_Server {
                 continue;
             }
             seq++;
+            seqNum++;
             offset += len;
         }
 
