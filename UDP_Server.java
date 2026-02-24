@@ -189,7 +189,7 @@ public class UDP_Server {
         byte[] fileBytes = curFile.readAllBytes();
         curFile.close();
 
-        int seq = session.expectedSeq;
+        int seq = seqNum;
         int offset = 0;
         int chunkSize = 1024;
         int maxRetry = 5;
@@ -234,6 +234,7 @@ public class UDP_Server {
             }
 
             seq++;
+            seqNum++;
             offset += len;
         }
 
