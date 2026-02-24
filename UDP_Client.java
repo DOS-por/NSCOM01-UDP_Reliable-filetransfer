@@ -257,7 +257,7 @@ public class UDP_Client {
             case 1:
                 System.out.println("Enter file to uplaod: ");
                 String file = sc.nextLine().trim();
-                client.send("UPLOAD", null, serverIP, serverPort);
+                client.send("UPLOAD", file.getBytes(), serverIP, serverPort);
                 client.sendFile(file,serverIP, serverPort);
                 break;
             case 2:
