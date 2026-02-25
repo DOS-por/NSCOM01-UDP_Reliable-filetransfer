@@ -239,7 +239,7 @@ public class UDP_Server {
         }
 
         // Send DATA_END
-        String endPkt = buildPkt("DATA_END", seq, 0, (seq + "").getBytes());
+        String endPkt = buildPkt("DATA_END", seq, 0, null);
         socket.send(new DatagramPacket(endPkt.getBytes(), endPkt.length(), session.clientIP, session.clientPort));
         System.out.println("File transfer complete.");
     }
@@ -273,7 +273,7 @@ public class UDP_Server {
 
                         if (type.equals("DATA_END")) {
                             System.out.println("Received DATA_END. File saved at " + savePath);
-                            String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                            String ackMsg = buildPkt("ACK", seq, 0, null);
                             socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
                                     session.clientIP, session.clientPort));
                             return; // finished
@@ -287,7 +287,7 @@ public class UDP_Server {
 
                             if (seq == expectedSeq) {
                                 fileOut.write(payload);
-                                String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                                String ackMsg = buildPkt("ACK", seq, 0, null);
                                 socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
                                         session.clientIP, session.clientPort));
                                 System.out.println("Received DATA seq=" + seq + " size=" + payload.length + ", sent ACK");
@@ -295,7 +295,7 @@ public class UDP_Server {
 
                             } else if (seq < expectedSeq) {
                                 int lastAck = expectedSeq - 1;
-                                String ackMsg = buildPkt("ACK", lastAck, 0, (lastAck + "").getBytes());
+                                String ackMsg = buildPkt("ACK", lastAck, 0, null);
                                 socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
                                         session.clientIP, session.clientPort));
                                 System.out.println("Duplicate DATA seq=" + seq + ", resent ACK seq=" + lastAck);
