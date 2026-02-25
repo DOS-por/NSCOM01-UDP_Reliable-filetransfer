@@ -26,7 +26,7 @@ public class UDP_Server {
         }
     }
 
-    private final String SERVER_FOLDER = "server_files"; // Folder containing downloadable files
+    private final String SERVER_FOLDER = "uploads"; // Folder containing downloadable files
     private int seqNum = new Random().nextInt(10000); // Initial server seq num
     private DatagramSocket socket;
     private Queue<Integer> openPorts = new LinkedList<>();
@@ -177,7 +177,8 @@ public class UDP_Server {
             return;
         }
 
-        File file = new File("server_files/" + filename);
+        filename = filename.trim();
+        File file = new File("uploads/" + filename);
         if (!file.exists()) {
             System.out.println("File not found: " + filename);
             String errorPkt = buildPkt("ERROR", 0, 0, "File not found".getBytes());
@@ -246,37 +247,50 @@ public class UDP_Server {
     // Receive an uploaded file from client
     public void recvFile(String savePath, Session session) throws Exception {
         FileOutputStream fileOut = new FileOutputStream(savePath);
-        byte[] buffer = new byte[4096];
         int expectedSeq = session.expectedSeq;
-        int maxRetries = 5;             // maximum retries if a packet is missing
+        int maxRetries = 5;
         int retryCount;
         boolean receivedPacket;
 
-        socket.setSoTimeout(2000);      // wait 2 seconds for each packet
+        socket.setSoTimeout(2000);
 
         try {
             while (true) {
+                byte[] buffer = new byte[4096];  // new buffer per packet
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 retryCount = 0;
                 receivedPacket = false;
 
                 while (!receivedPacket && retryCount < maxRetries) {
                     try {
-                        socket.receive(packet);   // wait for packet
-                        receivedPacket = true;    // packet received, exit retry loop
+                        socket.receive(packet);
+                        receivedPacket = true;
 
                         String msg = new String(packet.getData(), 0, packet.getLength());
                         String[] parts = msg.split(":", 4);
+
+                        if (parts.length < 2 || parts[1].isEmpty()) {
+                            System.out.println("Invalid packet received: " + msg);
+                            continue;
+                        }
+
+                        int seq;
+                        try {
+                            seq = Integer.parseInt(parts[1]);
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid sequence number: " + parts[1]);
+                            continue;
+                        }
+
                         String type = parts[0];
-                        int seq = Integer.parseInt(parts[1]);
 
                         if (type.equals("DATA_END")) {
                             System.out.println("Received DATA_END. File saved at " + savePath);
                             String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
-                            socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
+                            socket.send(new DatagramPacket(
+                                    ackMsg.getBytes(), ackMsg.length(),
                                     session.clientIP, session.clientPort));
-                            return; // finished
-
+                            return;
                         }
 
                         if (type.equals("DATA")) {
@@ -287,15 +301,16 @@ public class UDP_Server {
                             if (seq == expectedSeq) {
                                 fileOut.write(payload);
                                 String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
-                                socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
+                                socket.send(new DatagramPacket(
+                                        ackMsg.getBytes(), ackMsg.length(),
                                         session.clientIP, session.clientPort));
                                 System.out.println("Received DATA seq=" + seq + " size=" + payload.length + ", sent ACK");
                                 expectedSeq++;
-
                             } else if (seq < expectedSeq) {
                                 int lastAck = expectedSeq - 1;
                                 String ackMsg = buildPkt("ACK", lastAck, 0, (lastAck + "").getBytes());
-                                socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(),
+                                socket.send(new DatagramPacket(
+                                        ackMsg.getBytes(), ackMsg.length(),
                                         session.clientIP, session.clientPort));
                                 System.out.println("Duplicate DATA seq=" + seq + ", resent ACK seq=" + lastAck);
                             }
@@ -324,34 +339,64 @@ public class UDP_Server {
         System.out.println("Server ready...");
 
         boolean stop = false;
-        while (!stop) {
-            Session session = server.handleHandshake();
-            if (session == null) {
-                continue;
-            }
-            byte[] buf = new byte[2048];
-            DatagramPacket req = new DatagramPacket(buf,buf.length);
-            server.socket.receive(req);
-            String msg = new String(req.getData(), 0, req.getLength());
-            System.out.println("Client req: " + msg);
 
-            if(msg.startsWith("REQ:")){ // Server -> Client
-                String[] reqParts = msg.split(":", 4);
-                session.expectedSeq = Integer.parseInt(reqParts[1]) + 1;
-                byte[] filenameBytes = Base64.getDecoder().decode(reqParts[3]);
-                String filename = new String(filenameBytes);
-                server.sendFileToClient(session, filename, session.getSessionKey() );
-            }
-            else if(msg.startsWith("UPLOAD:")){ // CLient -> Server
-                String[] reqParts = msg.split(":", 4);
-                session.expectedSeq = Integer.parseInt(reqParts[1]) + 1;
-                server.recvFile("uploads/" + "uploaded_file_" + System.currentTimeMillis(), session);
-            }
-            else if(msg.equals("LIST")){
-                server.sendFileList(session);
-            }
-            else if(msg.equals("FIN")){
-                stop = true;
+        while (!stop) {
+            //Handle new client handshake
+            Session session = server.handleHandshake();
+            if (session == null) continue;
+
+            boolean running = true;
+            byte[] buffer = new byte[2048];
+
+            //Session loop
+            while (running) {
+                DatagramPacket req = new DatagramPacket(buffer, buffer.length);
+                server.socket.receive(req);
+                String msg = new String(req.getData(), 0, req.getLength()).trim();
+                System.out.println("Client req: " + msg);
+
+                if (msg.startsWith("REQ:")) {
+                    String[] reqParts = msg.split(":", 4);
+                    if (reqParts.length < 4 || reqParts[1].isEmpty()) {
+                        System.out.println("Invalid REQ packet: " + msg);
+                        continue;
+                    }
+                    try {
+                        session.expectedSeq = Integer.parseInt(reqParts[1]) + 1;
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid sequence number in REQ packet: " + reqParts[1]);
+                        continue;
+                    }
+                    byte[] filenameBytes = Base64.getDecoder().decode(reqParts[3]);
+                    String filename = new String(filenameBytes);
+                    server.sendFileToClient(session, filename, session.getSessionKey());
+
+                } else if (msg.startsWith("UPLOAD:")) {
+                    String[] reqParts = msg.split(":", 4);
+                    if (reqParts.length < 4 || reqParts[1].isEmpty()) {
+                        System.out.println("Invalid UPLOAD packet: " + msg);
+                        continue;
+                    }
+                    try {
+                        session.expectedSeq = Integer.parseInt(reqParts[1]) + 1;
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid sequence number in UPLOAD packet: " + reqParts[1]);
+                        continue;
+                    }
+                    server.recvFile("uploads/" + "uploaded_file_" + System.currentTimeMillis(), session);
+
+                } else if (msg.equals("LIST")) {
+                    server.sendFileList(session);
+
+                } else if (msg.startsWith("FIN:")) {  // FIN message for ending the session
+                    server.openPorts.add(session.assignedPort);
+                    server.activeSessions.remove(session.getSessionKey());
+                    System.out.println("Session ended for client " + session.getSessionKey() + "\n");
+                    running = false; // exit the session loop
+
+                } else {
+                    System.out.println("Unknown message: " + msg);
+                }
             }
         }
     }
