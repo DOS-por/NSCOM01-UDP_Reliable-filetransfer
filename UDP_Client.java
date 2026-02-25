@@ -78,9 +78,8 @@ public class UDP_Client {
                     String type = parts[0];
 
                     int ackNumRecv = -1;
-                    if (type.equals("ACK") && parts.length > 3 && !parts[3].isEmpty()) {
-                        byte[] ackPayload = Base64.getDecoder().decode(parts[3]);
-                        ackNumRecv = Integer.parseInt(new String(ackPayload));
+                    if (type.equals("ACK")) {
+                        ackNumRecv = Integer.parseInt(parts[1]);
                     }
 
                     if (ackNumRecv == seqNum) {
@@ -155,7 +154,7 @@ public class UDP_Client {
 
                         if (type.equals("DATA_END")) {
                             System.out.println("Download finished. Saved as: " + savePath);
-                            String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                            String ackMsg = buildPkt("ACK", seq, 0, null);
                             socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
                             return; // finished
                         }
@@ -165,14 +164,14 @@ public class UDP_Client {
 
                             if (seq == expectedSeq) {
                                 fos.write(payload);
-                                String ackMsg = buildPkt("ACK", seq, 0, (seq + "").getBytes());
+                                String ackMsg = buildPkt("ACK", seq, 0, null);
                                 socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
                                 expectedSeq++;
 
                             } else if (seq < expectedSeq) {
                                 // duplicate packet
                                 int lastAck = expectedSeq - 1;
-                                String ackMsg = buildPkt("ACK", lastAck, 0, (lastAck + "").getBytes());
+                                String ackMsg = buildPkt("ACK", lastAck, 0, null);
                                 socket.send(new DatagramPacket(ackMsg.getBytes(), ackMsg.length(), packet.getAddress(), packet.getPort()));
                             }
                         }
