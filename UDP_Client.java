@@ -197,14 +197,12 @@ public class UDP_Client {
                     } catch (SocketTimeoutException e) {
 
                         retryCount++;
-                        System.out.println("Timeout waiting for packet seq="
-                                + expectedSeq + ", retry " + retryCount);
+                        System.out.println("Timeout waiting for packet seq=" + expectedSeq + ", retry " + retryCount);
                     }
                 }
 
                 if (!receivedPacket) {
-                    System.out.println("Failed to receive packet seq="
-                            + expectedSeq + " after " + maxRetries + " retries. Aborting download.");
+                    System.out.println("Failed to receive packet seq=" + expectedSeq + " after " + maxRetries + " retries. Aborting download.");
                     return;
                 }
             }
